@@ -1,0 +1,275 @@
+---
+title: "Commercial Goals: Unique Member Receipts Logged Seasonal Trends"
+subtitle: "Reviewing Seasonal Variation"
+author: "Insights and Analytics | `r paste0('Last Updated: ', format(Sys.time(), '%d %B, %Y'))`"
+output: 
+  pagedreport::paged_windmill:
+    front_img: "input/blowing rock (1).jpg"
+    logo: "input/TangerOutlets_LOGO_horizontal.svg"
+    img_to_dark: TRUE
+    logo_to_white: TRUE
+    toc: TRUE
+knit: pagedown::chrome_print
+toc-title: "Table of Contents"
+main-color: "#bf0000"
+secondary-color: "#acacad"
+google-font: TRUE
+main-font: "Roboto"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{css, echo = FALSE}
+
+p, ul, ol {
+  margin-right: 0%;
+}
+
+h1.title {
+    font-size: 30pt;
+    margin-right: 10%;
+    font-weight: 700;
+}
+
+h1.subtitle {
+    font-size: 20pt;
+    margin-right: 15%;
+    font-weight: 300;
+}
+
+h2.author {
+    font-size: 12pt;
+    margin-right: 10%;
+    font-weight: 700;
+}
+
+h2.date {
+    font-size: 12pt;
+    margin-right: 10%;
+    font-weight: 300;
+}
+
+h1.toc-title {
+    font-size: 30pt;
+    font-weight: 200;
+}
+
+h1 { /* Header 1 */
+  font-size: 26px;
+}
+h2 { /* Header 2 */
+    font-size: 20px;
+}
+h3 { /* Header 3 */
+  font-size: 16px;
+}
+body {
+  font-size: 10pt;
+}
+```
+
+```{r setup, include=FALSE}
+# knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(fig.align = 'center')
+library(tidyverse)
+library(prophet)
+library(kableExtra)
+library(gt)
+library(geomtextpath)
+options(scipen = 999)
+theme_set(theme_bw())
+cb_palette <- c("#003399", "#ff2b4f", "#3686d3", "#fcab27", "#88298a", "#000000", "#969696", "#008f05", "#FF5733", "#E5F828")
+
+load(file = here::here("data", "CleanRecpts_Seas.rds"))
+
+# ---- Different Combined -------
+
+RecptMo <-
+  CleanRecpts_Seas %>% 
+  mutate(FirRecMo = lubridate::floor_date(FirRecPerYear, "month")) %>% 
+  group_by(PurchYear, FirRecMo) %>% 
+  summarise(CountCusFir = n()) %>% 
+  ungroup() %>% 
+  mutate(Month = lubridate::month(FirRecMo), #, label = T, abbr = T
+         CountCusFir = as.numeric(CountCusFir))
+
+
+
+
+RecptMo %>% 
+    filter(PurchYear > 2016,
+         PurchYear < 2022) %>% 
+  mutate(Month = lubridate::month(FirRecMo, label=T, abbr = T)) %>% 
+  select(-FirRecMo) %>% 
+  pivot_wider(names_from = PurchYear, values_from = CountCusFir) %>% 
+  gt(rowname_col = "Month") %>% 
+  fmt_number(columns = 2:6,  decimals = 1,  suffix= T) %>% 
+  tab_header(title = "Receipts: Count of Unique Customer ID's",
+             subtitle = "With at least 1 logged receipt for that year | Counted in the month first Receipt is logged") %>% 
+  summary_rows(
+    # groups = TRUE,
+    columns = c(2:6), fns = list(total = "sum"),  formatter = fmt_number,
+    decimals = 1, suffix= T)#pattern = "{x}M" 
+
+
+
+```
+
+# Top Line {-}
+
+We have provided historical trends for the past few years. The business owner for this metric will ultimately set where were they want the business goal to land.
+
+For the members logging receipt seasonal trends, we have presented the count of unique customer id's for members who have logged a receipt within that calendar year. 
+
+
+<style>
+div.blue { background-color:#ff7a7a; border-radius: 5px; padding: 10px;}
+</style>
+<div class = "blue">
+
+__NOTE:__ This metric is only applicable to the yearly time horizon. It is possible that a member could log many receipts throughout a year or a member could log a single receipt. These types of member activity are counted equally by this metric.
+
+</div>
+
+<br>
+
+```{r}
+
+RecptMo %>% 
+  filter(PurchYear >= 2016,
+         PurchYear < 2022) %>% 
+  group_by(PurchYear) %>% 
+  summarise(TotalMem = sum(CountCusFir, na.rm = T)) %>% 
+  ungroup() %>% 
+  rename(`Unique Customers` = TotalMem) %>% 
+  gt(rowname_col = "PurchYear") %>% 
+  fmt_number(columns = 2,  decimals = 1,  suffix= T) %>% 
+  tab_header(title = "Count of Unique Customer ID's By Year",
+             subtitle = "With at least 1 logged receipt for that year")
+
+```
+
+
+
+
+# Reviewing Historical Data {-}
+
+## Overview of Data {-}
+
+For this analysis we have focused on analyzing the unique customers by day who have logged a receipt in the same month as their purchase date (note items purchased near the end of the month are less likely to be captured as there is a smaller time frame to log a receipt than those purchased at the start of the month).
+
+We have focused on unique customers as they would be a foundational unit for this program (more unique customers would lead to more receipts and increase the likelihood of more total dollars captured). 
+
+
+### Data Generation {-} 
+Receipts as logged with TangStats. Note that we are only counting "approved" receipts and receipts that are logged in the same month as the purchase date.
+
+### Data Pull from DB {-}
+For forecasting purposes we have pulled data for all centers from 2016 until now (2022.01.28). The analysis excluded any data before 2015 as values were much lower.
+
+__Source:__ TangStats (server: appsql-prod.database.windows.net)  
+
+__Tables:__ [dbo].[tblReceiptTracking]
+
+* Analyzing receipts that were logged in the same month as the purchase date. 
+* Records with receipts that were larger than $100,000 were removed
+
+
+
+\newpage
+
+## Monthly Counts {-}
+
+Each point represents the count of members where the first logged receipt was present in that month.
+
+```{r}
+
+
+(p1 <- RecptMo %>% 
+  filter(PurchYear >= 2016) %>% 
+  ggplot(aes(Month, CountCusFir, color=PurchYear))+
+    geom_point()+
+    # geom_line(size = 1.1)+
+    geom_textpath(aes(label = PurchYear), size = 5, linewidth=1, alpha=0.7)+
+    # geom_smooth(se=F)+
+  scale_y_continuous(labels = scales::comma, breaks = seq(0,40000, 5000),expand = c(0,0), limits = c(0,40000))+
+  scale_x_continuous(breaks = seq(1,12,1))+
+  scale_color_manual(values = cb_palette)+
+  labs(title ="Count of Unique Customer's First Reciept Logged Over Time",
+       y = NULL, x="Month Number")+
+  theme(legend.position = "none"))
+
+
+```
+
+\newpage
+
+### Monthly Percentages {-}
+
+Each point represents the percent of members where the first logged receipt was present in that month.
+
+```{r, out.width="100%"}
+
+(p2 <- RecptMo %>% 
+  filter(PurchYear >= 2016,
+         PurchYear < 2022) %>% 
+  group_by(PurchYear) %>% 
+  mutate(Perc = CountCusFir/ sum(CountCusFir)) %>% 
+  ungroup() %>% 
+  ggplot(aes(Month, Perc, fill=PurchYear))+
+  # geom_point()+
+  # geom_line(size = 1.1)+
+  geom_bar(stat="identity", position = "dodge", alpha=0.7)+
+  # geom_textpath(aes(label = PurchYear), size = 5, linewidth=1, alpha=0.7)+
+  # geom_smooth(se=F)+
+  scale_y_continuous(labels = scales::percent, breaks = seq(0,.21, .03), expand = c(0,0), limits = c(0, 0.21))+
+  scale_x_continuous(breaks = seq(1,12,1))+
+  scale_fill_manual(values = cb_palette)+
+  labs(title ="Monthly Percent of Unique Customer's First Reciept Logged Over Time",
+       y = NULL, x="Month Number", fill = "Receipt Year")+
+   theme(legend.position = "bottom")
+)
+
+```
+
+
+```{r, eval=F}
+CleanRecpts_Seas %>% 
+  filter(PurchYear >= 2016,
+         PurchYear < 2022,
+         CountRecPerYear <100) %>% 
+  mutate(Month = lubridate::month(FirRecPerYear)) %>% 
+  # group_by(PurchYear, Month) %>%
+  # summarise()
+  # ungroup() %>% 
+  ggplot(aes(CountRecPerYear, fill=PurchYear))+
+    geom_histogram(position = "dodge")
+  
+```
+
+
+
+# Appendix {-}
+
+
+## SQL: Receipts {-}
+
+```{sql, eval=F, echo=T}
+Select CustomerID, CenterID, TentID, CreatedOn, PurchaseDate, ReceiptAmount, MinsBtwnPurchAndSubmit 
+	From (
+		Select * 
+			, datediff(minute, PurchaseDate, CreatedOn) as MinsBtwnPurchAndSubmit
+		From tblReceiptTracking 
+		Where Status = 'A'
+			And DeletedOn is null 
+			And TentID != 'TCPTS'
+			And TentID is not null 
+			And TentID != 'OTHER'
+			And ReceiptAmount < 100000
+	) a
+```
+
+## Forecast Model {-}
+
+No forecast model was used to generate this data.

@@ -1,0 +1,465 @@
+---
+title: "Commercial Goals: Digital Traffic"
+subtitle: "Utilizing Synthetic Controls to Baseline Projected Performance"
+author: "Insights and Analytics | `r paste0('Last Updated: ', format(Sys.time(), '%d %B, %Y'))`"
+output: 
+  pagedreport::paged_windmill:
+    front_img: "input/blowing rock (1).jpg"
+    logo: "input/TangerOutlets_LOGO_horizontal.svg"
+    img_to_dark: TRUE
+    logo_to_white: TRUE
+    toc: TRUE
+knit: pagedown::chrome_print
+toc-title: "Table of Contents"
+main-color: "#bf0000"
+secondary-color: "#acacad"
+google-font: TRUE
+main-font: "Roboto"
+editor_options: 
+  chunk_output_type: console
+---
+
+```{css, echo = FALSE}
+
+p, ul, ol {
+  margin-right: 0%;
+}
+
+h1.title {
+    font-size: 30pt;
+    margin-right: 10%;
+    font-weight: 700;
+}
+
+h1.subtitle {
+    font-size: 20pt;
+    margin-right: 15%;
+    font-weight: 300;
+}
+
+h2.author {
+    font-size: 12pt;
+    margin-right: 10%;
+    font-weight: 700;
+}
+
+h2.date {
+    font-size: 12pt;
+    margin-right: 10%;
+    font-weight: 300;
+}
+
+h1.toc-title {
+    font-size: 30pt;
+    font-weight: 200;
+}
+
+h1 { /* Header 1 */
+  font-size: 26px;
+}
+h2 { /* Header 2 */
+    font-size: 20px;
+}
+h3 { /* Header 3 */
+  font-size: 16px;
+}
+body {
+  font-size: 10pt;
+}
+```
+
+```{r setup, include=FALSE}
+# knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE)
+knitr::opts_chunk$set(fig.align = 'center')
+library(tidyverse)
+library(prophet)
+library(kableExtra)
+library(gt)
+options(scipen = 999)
+theme_set(theme_bw())
+cb_palette <- c("#003399", "#ff2b4f", "#3686d3", "#fcab27", "#88298a", "#000000", "#969696", "#008f05", "#FF5733", "#E5F828")
+
+load(file = here::here("data", "CleanDigitalTraffc.rds"))
+
+# ---- DifferentFC Combined -------
+
+CombFC <-
+  bind_rows(
+    forecast1 %>%  filter(lubridate::year(as.Date(ds)) == 2022) %>% select(ds, yhat) %>% mutate(Model = "2022FC_Mid"),
+    forecast2 %>%  filter(lubridate::year(as.Date(ds)) == 2022) %>% select(ds, yhat) %>% mutate(Model = "2022FC_Flat"),
+    forecast3 %>%  filter(lubridate::year(as.Date(ds)) == 2022) %>% select(ds, yhat) %>% mutate(Model = "2022FC_High")
+    # forecast4 %>%  filter(lubridate::year(as.Date(ds)) == 2022) %>% select(ds, yhat) %>% mutate(Model = "2022FC_M4")
+  ) %>% 
+  mutate(ds = as.Date(ds),
+         MonthName = lubridate::month(ds, abbr = T, label=T)) %>% 
+  group_by(Model, MonthName) %>% 
+  summarise(sum_yhat = sum(yhat)) %>% 
+  ungroup() %>%
+  pivot_wider(names_from = Model, values_from = sum_yhat)
+
+# Build table of results ------
+Act_FC <- 
+  CleanTraffc %>% 
+  mutate(Month = lubridate::floor_date(as.Date(Date), "month"),
+         Year = lubridate::year(as.Date(Date)),
+         MonthName = lubridate::month(Month, abbr = T, label=T)) %>% 
+  filter(Year <= 2023,
+         Year >= 2017) %>% 
+  group_by(Year, MonthName) %>% 
+  summarise(TotalTraff = sum(Sessions)) %>% 
+  ungroup() %>% 
+  pivot_wider(names_from = Year, values_from = TotalTraff) %>% 
+  left_join(.,
+            CombFC) %>% 
+  mutate(`Business Goal` = "TBD")
+
+write_csv(Act_FC, here::here("output", "DigitTraffic_Goals.csv"))
+
+
+
+(final_table <-
+  Act_FC %>% 
+  # mutate_if(is.integer, as.numeric) %>% 
+  mutate_if(is.numeric, ~./1000000) %>%
+  gt(rowname_col = "MonthName") %>% 
+  fmt_number(columns = 2:10,  decimals = 2,  pattern = "{x}M") %>% #suffixing = TRUE
+  tab_style(
+    style = list(cell_borders(sides = "left",color = "black",weight = px(3))),
+    locations = list(cells_body(columns = c(`2022FC_Flat`)))) %>% 
+   tab_style(
+    style = list(cell_borders(sides = "bottom", color = "black",weight = px(3))),
+    locations = list(cells_column_labels(columns = gt::everything()))) %>% 
+  tab_style(
+    style = cell_text(color = "black", weight = "bold"),
+    locations = cells_body(columns = c(`2022FC_High`, `2022FC_Flat`, `2022FC_Mid`))) %>% 
+  fmt_missing(columns = 1:8,missing_text = "-  ") %>% 
+  summary_rows(
+    # groups = TRUE,
+    columns = c(2:6,8:10), fns = list(total = "sum"),  formatter = fmt_number,
+    decimals = 2, pattern = "{x}M") %>% #suffixing = TRUE
+  tab_footnote(
+    footnote = "Note that 2022 actuals represent the current traffic and is not a complete month",
+    locations = cells_column_labels(columns = `2022`)) %>% 
+  cols_align(align = c("center"), columns = `Business Goal`) %>% 
+  tab_style(locations = cells_body(columns = `Business Goal`),
+    style = list(cell_fill(color = "#ebebeb"),cell_text(style = "italic"))
+  ) )
+
+
+```
+
+# Top Line {-}
+
+We built a forecast model to set a useful baseline for the business to build from. The business owner for this metric will ultimately set where were they want the business goal to land.
+
+
+4 different forecasting models were applied, and are displayed below. These different models allow us to understand the potential impact of different scenarios.  
+
+* __Model 1 (Low/Flat):__ Covid data included, and covid period counted as 3/1/2020 - 5/1/2021, flattened trend.    
+    * This model produces the smallest forecasted traffic.
+* __Model 2 (Mid-point):__ Covid data included, includes growth trend  
+    * This model producess a forecasted traffic that is close to 2019 traffic.
+* __Model 3 (High):__ Covid data not included (then forecast 3 years out)  
+    * This model essentially is built with the belief that the trends pre-2020 will continue. Ultimately the business question here is whether shopper behavior will fully return to pre-pandemic behaviors in 2022.
+
+
+
+
+```{r, out.width="50%"}
+final_table %>% 
+  tab_options(
+    table.font.size = px(11L)
+  )
+
+```
+
+
+
+# Reviewing Historical Data {-}
+
+## Overview of Data {-}
+
+### Data Generation {-} 
+Web traffic data, as measured be Google web sessions.
+
+### Data Pull from DB {-}
+For forecasting purposes we have pulled data for all centers from 2009 until now (2022.01.26).
+
+__Source:__ Laura Simmons (server: ___)  
+
+__Tables:__ N/A
+
+Not sure if there was any additional filtering logic done on either LS side or in the data that is available in Google Analytics.
+
+
+
+
+
+## View of Trends {-}
+
+Before we begin to model this work, we want to visualize the general trends. This allows us to to flag for large outliers or anomalies within our data.  
+
+* With this data we can see how significant Covid shutdowns had on traffic throughout 2020.  
+* We also see a fairly consistent month to month seasonal variation.
+
+```{r}
+Hist <- CleanTraffc %>% 
+  mutate(month = lubridate::floor_date(Date, "month")) %>% 
+  filter(month < as.Date("2022-01-01")) %>% 
+  group_by(month, All) %>% 
+  summarise(traff = sum(Sessions,na.rm=T)) %>% 
+  ungroup()
+
+Current <- CleanTraffc %>% 
+  mutate(month = lubridate::floor_date(Date, "month")) %>% 
+  filter(month >= as.Date("2022-01-01")) %>% 
+  group_by(month, All) %>% 
+  summarise(traff = sum(Sessions,na.rm=T)) %>% 
+  ungroup()
+
+ggplot(data = Hist, aes(month, traff))+
+    geom_point()+
+    geom_line()+
+    geom_smooth()+
+    geom_point(data= Current, aes(month, traff), color="tomato", size = 2)+
+  scale_y_continuous(labels = scales::comma)+
+  labs(title ="Monthly Digital Traffic (Web Sessions) Trends Over Time",
+       subtitle = "Current Month in Red",
+       y = NULL, x=NULL)
+
+```
+
+### Monthly View {-}
+
+Each color line represents a different year's worth of traffic aggregated on a monthly basis.
+
+```{r, out.width="100%"}
+CleanTraffc %>% 
+  filter(Date < as.Date("2022-01-01"),
+         Date > as.Date("2013-01-01")) %>% 
+  mutate(month = lubridate::month(Date, abbr = T, label = F),
+         Year = as.character(lubridate::year(Date))) %>% 
+  filter(month < as.Date("2022-01-01")) %>% 
+  group_by(month, Year, All) %>% 
+  summarise(traff = sum(Sessions,na.rm=T)) %>% 
+  ungroup() %>% 
+  ggplot(aes(month, traff, color=Year))+
+    geom_point()+
+    # geom_line()+
+    geom_smooth(se= F, method="loess")+
+  scale_y_continuous(labels = scales::comma)+
+  scale_x_continuous(breaks = seq(1,12,1))+
+  scale_color_manual(values = cb_palette)+
+  labs(title ="Monthly Traffic Trends Over Time",
+       y = NULL, x="Month Number")
+
+
+```
+
+
+
+
+# Forcasting model {-}
+
+## Why Synthetic Controls? {-}
+
+
+_This method can account for the effects of confounders changing over time, by weighting the control group to better match the treatment group before the intervention. Another advantage of the synthetic control method is that it allows researchers to systematically select comparison groups. It has been applied to the fields of political science, health policy, criminology, and economics._
+
+In our case, we are using this methodology to help set a baseline of where the business would be if we continue with the same historical processes and procedures as before. 
+
+
+## Step 1: Build Forecast Model {-}
+
+Building model for all entire portfolio.  
+
+* In this case, we are already into 2022, but we want to build the forecast model excluding the new year. 
+* In the future data frame, we go forwards 365 days (1 year) to be able to predict against.
+
+
+```{r, eval=FALSE, echo=T}
+Traffc <-
+  CleanTraffc %>% 
+  filter(Date < as.Date("2022-01-01")) %>% 
+  mutate(ds = Date) %>% 
+  group_by(ds) %>% 
+  summarise(y = sum(Sessions, na.rm=T)) %>% 
+  ungroup()
+
+# m <- prophet(Traffc, holidays = covid)
+m <- prophet(holidays = covid)
+m <- add_country_holidays(m, country_name = 'US')
+m <- fit.prophet(m, Traffc)
+
+future <- make_future_dataframe(m, periods = 365)
+# tail(future)
+
+
+forecast <- predict(m, future)
+# tail(forecast[c('ds', 'yhat', 'yhat_lower', 'yhat_upper')])
+```
+
+## Forecast Results {-}
+
+Below is the forecast model.  
+
+* The black dots represent to the total portfolio traffic by day.
+* The blue line represents the forecasted values.  
+
+We see a strong degree of seasonality
+
+### Forecast Model 1 {-}
+```{r}
+Comp <- 
+  CleanTraffc %>% 
+  # filter(Date < as.Date("2022-01-01")) %>%
+  # filter(Date < as.Date("2020-01-01")) %>%
+  mutate(ds = Date) %>% 
+  group_by(ds) %>% 
+  summarise(y = sum(Sessions, na.rm=T)) %>% 
+  ungroup() %>% 
+  full_join(., forecast1 %>% select(ds, yhat)) %>% 
+  mutate(ds = as.Date(ds),
+         y = as.numeric(y),
+         yhat = as.numeric(yhat))
+
+ggplot()+
+  geom_line(data = Comp %>% filter(ds < as.Date("2022-01-01")),
+             aes(ds, yhat), color="grey80")+
+  geom_point(data = Comp %>% filter(ds < as.Date("2022-01-01")),
+             aes(ds, y), color="black")+
+  geom_line(data = Comp %>% filter(ds >= as.Date("2022-01-01")),
+             aes(ds, yhat), color=cb_palette[2], alpha= 0.7)+
+  geom_point(data = Comp %>% filter(ds >= as.Date("2022-01-01")),
+             aes(ds, y), color=cb_palette[1])+
+  labs(title = "Forecasted Portfolio Vehicle Traffic: Model 1 (Mid: Covid + Keeps Trend)", 
+       # subtitle = "Removing 2020 (COVID) onwards from forecast model",
+       caption = "Red Line: Forecasted Vaules | Blue points: Actual Traffic during holdout period",
+       y = NULL, x= NULL)+
+  scale_y_continuous(labels = scales::comma)
+```
+
+
+### Forecast Model 2 {-}
+```{r}
+Comp <- 
+  CleanTraffc %>% 
+  # filter(Date < as.Date("2022-01-01")) %>%
+  # filter(Date < as.Date("2020-01-01")) %>%
+  mutate(ds = Date) %>% 
+  group_by(ds) %>% 
+  summarise(y = sum(Sessions, na.rm=T)) %>% 
+  ungroup() %>% 
+  full_join(., forecast2 %>% select(ds, yhat)) %>% 
+  mutate(ds = as.Date(ds),
+         y = as.numeric(y),
+         yhat = as.numeric(yhat))
+
+ggplot()+
+  geom_line(data = Comp %>% filter(ds < as.Date("2022-01-01")),
+             aes(ds, yhat), color="grey80")+
+  geom_point(data = Comp %>% filter(ds < as.Date("2022-01-01")),
+             aes(ds, y), color="black")+
+  geom_line(data = Comp %>% filter(ds >= as.Date("2022-01-01")),
+             aes(ds, yhat), color=cb_palette[2], alpha= 0.7)+
+  geom_point(data = Comp %>% filter(ds >= as.Date("2022-01-01")),
+             aes(ds, y), color=cb_palette[1])+
+  labs(title = "Forecasted Portfolio Vehicle Traffic: Model 2 (Flat: Covid + Flattens Trend)", 
+       # subtitle = "Removing 2020 (COVID) onwards from forecast model",
+       caption = "Red Line: Forecasted Vaules | Blue points: Actual Traffic during holdout period",
+       y = NULL, x= NULL)+
+  scale_y_continuous(labels = scales::comma)
+```
+
+### Forecast Model 3 {-}
+```{r}
+Comp <- 
+  CleanTraffc %>% 
+  # filter(Date < as.Date("2022-01-01")) %>%
+  # filter(Date < as.Date("2020-01-01")) %>%
+  mutate(ds = Date) %>% 
+  group_by(ds) %>% 
+  summarise(y = sum(Sessions, na.rm=T)) %>% 
+  ungroup() %>% 
+  full_join(., forecast3 %>% select(ds, yhat)) %>% 
+  mutate(ds = as.Date(ds),
+         y = as.numeric(y),
+         yhat = as.numeric(yhat))
+
+ggplot()+
+  geom_line(data = Comp %>% filter(ds < as.Date("2020-01-01")),
+             aes(ds, yhat), color="grey80")+
+  geom_point(data = Comp %>% filter(ds < as.Date("2020-01-01")),
+             aes(ds, y), color="black")+
+  geom_line(data = Comp %>% filter(ds >= as.Date("2020-01-01")),
+             aes(ds, yhat), color=cb_palette[2], alpha= 0.7)+
+  geom_point(data = Comp %>% filter(ds >= as.Date("2020-01-01")),
+             aes(ds, y), color=cb_palette[1])+
+  labs(title = "Forecasted Portfolio Vehicle Traffic: Model 3 (High: Removes Covid)", 
+       subtitle = "Removing 2020 (COVID) onwards from forecast model",
+       caption = "Red Line: Forecasted Vaules | Blue points: Actual Traffic during holdout period",
+       y = NULL, x= NULL)+
+  scale_y_continuous(labels = scales::comma)
+```
+
+
+
+### Forecast Components {-}
+
+A forecast model can be broken up into the different elements that add (or multiply) together. By splitting them out and visualizing them, we then can view the index values and assess the impact of different items on the results
+
+By breaking down the forecast into it's component parts we see a couple of things:  
+
+* Trend: This element shows what the general trend is year over year.  
+    * In this case, there is a forecasted to be a downwards trend for future years. 
+* Holidays: This elements flags both the US holidays as well as the date range from 3/1/2020 - 5/1/2021 as the main effect of Covid shutdowns.   
+* Weekly: This element shows how traffic varies within the week.  
+    * The outlets being a mainly weekend business really shows up in this view, with the positive indices being for Friday, Saturday, Sunday.
+* Yearly: This is the element of the within year seasonality.   
+    * In general we see that there is a general ramp up throughout the first part of the year, a small lull in October, and then our biggest traffic volumes seen during the end of year. 
+
+
+__Note about negative values:__ These 4 items below are added together to create the forecast model. This is why there are some items that are negative and some that are positive. A negative value does not mean that we would forecast negative vehicles, but instead that at those instances the traffic would decrease from the trend.  
+
+* An example here would be the impact of Christmas day on digital traffic, where with the centers closed it's less likely people are logging into the website.  
+* We do see a yearly spike around Thanksgiving/Black Friday time period. 
+
+#### Model 1 {-}
+```{r}
+prophet_plot_components(m1, forecast1)
+
+```
+
+#### Model 2 {-}
+```{r}
+prophet_plot_components(m2, forecast2)
+
+```
+
+#### Model 3 {-}
+```{r}
+prophet_plot_components(m3, forecast3)
+
+```
+
+
+
+# Next Steps {-}
+The "Top Line" section presented both the actuals traffic by month for prior years with the forecasted values for 2022 (bolded). 
+
+The forecasted values could represent what would be considered as the baseline for goal setting by the business. Upon which the business leaders responsible for this metric would review and adjust the values according to where they believe they can made an impact. It will be up to the business to determine what strategies they will implement and adjust the goals accordingly.
+
+This analysis body of work is set up to allow for the adjustment of goals based upon the values decided upon by the business owners. 
+
+
+# Appendix {-}
+
+
+## Export: Digital Traffic {-}
+
+Daily raw counts for Tangeroutlet.com since 4/2/2009. 
+
+## Forecast Model {-}
+
+The forecast model code is available within the I&A OneDrive.
